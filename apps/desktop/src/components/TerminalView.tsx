@@ -5,6 +5,7 @@ import { FitAddon } from "@xterm/addon-fit";
 import { Terminal } from "xterm";
 import CommandBlock from "./CommandBlock";
 import { appendOutputToBlock, completeBlock, createRunningBlock, type CommandBlock as CommandBlockModel } from "../lib/blocks";
+import { parseShellIntegrationChunk } from "../lib/shellIntegration";
 import "xterm/css/xterm.css";
 import "./TerminalView.css";
 
@@ -24,6 +25,7 @@ export default function TerminalView() {
   const activeBlockIdRef = useRef<string | null>(null);
   const currentInputRef = useRef("");
   const interruptedRef = useRef(false);
+  const markerEventsDetectedRef = useRef(false);
 
   useEffect(() => {
     if (!hostRef.current) {
@@ -69,20 +71,38 @@ export default function TerminalView() {
     const start = async () => {
       const unlisten = await listen<ShellOutputPayload>("pty-output", (event) => {
         const chunk = event.payload.chunk;
+        const { cleanChunk, events } = parseShellIntegrationChunk(chunk);
         terminal.write(chunk);
+        for (const shellEvent of events) {
+          markerEventsDetectedRef.current = true;
+
+          if (shellEvent.type === "command_done") {
+            const activeBlockId = activeBlockIdRef.current;
+            if (!activeBlockId) {
+              continue;
+            }
+
+            const exitCode = shellEvent.exitCode;
+            const status = exitCode === 0 ? "success" : "failed";
+            activeBlockIdRef.current = null;
+            interruptedRef.current = false;
+            setBlocks((prev) => completeBlock(prev, activeBlockId, status, exitCode));
+          }
+        }
 
         const activeBlockId = activeBlockIdRef.current;
         if (!activeBlockId) {
           return;
         }
+        if (cleanChunk) {
+          setBlocks((prev) => appendOutputToBlock(prev, activeBlockId, cleanChunk));
+        }
 
-        setBlocks((prev) => appendOutputToBlock(prev, activeBlockId, chunk));
-
-        if (isPromptReturnChunk(chunk)) {
+        if (!markerEventsDetectedRef.current && isPromptReturnChunk(cleanChunk)) {
           const status = interruptedRef.current ? "failed" : "success";
           interruptedRef.current = false;
           activeBlockIdRef.current = null;
-          setBlocks((prev) => completeBlock(prev, activeBlockId, status));
+          setBlocks((prev) => completeBlock(prev, activeBlockId, status, status === "success" ? 0 : null));
         }
       });
       teardownOutputListener = unlisten;
@@ -181,7 +201,7 @@ export default function TerminalView() {
 
   return (
     <section className="terminal-root">
-      <header className="terminal-header">flowsh · phase 0.2 command blocks</header>
+      <header className="terminal-header">flowsh · phase 0.2.1 marker-based blocks</header>
       <div className="terminal-workspace">
         <aside className="blocks-panel">
           <div className="blocks-panel-title">Command Blocks</div>

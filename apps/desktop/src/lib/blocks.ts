@@ -41,6 +41,7 @@ export function completeBlock(
   blocks: CommandBlock[],
   blockId: string,
   status: Exclude<CommandBlockStatus, "running">,
+  exitCode: number | null,
 ): CommandBlock[] {
   return blocks.map((block) =>
     block.id === blockId && block.status === "running"
@@ -48,6 +49,7 @@ export function completeBlock(
           ...block,
           status,
           endedAt: Date.now(),
+          exitCode: exitCode ?? undefined,
         }
       : block,
   );

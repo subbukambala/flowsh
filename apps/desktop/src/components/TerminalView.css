@@ -93,6 +93,7 @@
 }
 
 .command-block-time,
+.command-block-exit,
 .command-block-duration {
   color: #8b98be;
 }

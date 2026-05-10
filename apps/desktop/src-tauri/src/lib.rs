@@ -24,6 +24,59 @@ fn default_shell() -> String {
     std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string())
 }
 
+fn shell_kind(shell_path: &str) -> &str {
+    shell_path
+        .rsplit('/')
+        .next()
+        .unwrap_or(shell_path)
+        .split_whitespace()
+        .next()
+        .unwrap_or(shell_path)
+}
+
+fn initialize_shell_integration(
+    shell_path: &str,
+    writer: &mut Box<dyn Write + Send>,
+) -> Result<(), String> {
+    let script = match shell_kind(shell_path) {
+        "zsh" => Some(
+            "autoload -Uz add-zsh-hook >/dev/null 2>&1\n\
+             __flowsh_preexec(){ printf '\\033]133;C;\\007'; }\n\
+             __flowsh_precmd(){ local __s=\"$?\"; printf '\\033]133;D;%s\\007\\033]133;A\\007' \"$__s\"; }\n\
+             add-zsh-hook preexec __flowsh_preexec\n\
+             add-zsh-hook precmd __flowsh_precmd\n\
+             printf '\\033]133;A\\007'\n",
+        ),
+        "bash" => Some(
+            "__flowsh_preexec(){ printf '\\033]133;C;\\007'; }\n\
+             __flowsh_precmd(){ local __s=\"$?\"; printf '\\033]133;D;%s\\007\\033]133;A\\007' \"$__s\"; }\n\
+             trap '__flowsh_preexec' DEBUG\n\
+             PROMPT_COMMAND=\"__flowsh_precmd${PROMPT_COMMAND:+;$PROMPT_COMMAND}\"\n\
+             printf '\\033]133;A\\007'\n",
+        ),
+        "fish" => Some(
+            "function __flowsh_preexec --on-event fish_preexec\n\
+             printf '\\033]133;C;\\a'\n\
+             end\n\
+             function __flowsh_postexec --on-event fish_postexec\n\
+             set -l __s $status\n\
+             printf '\\033]133;D;%s\\a\\033]133;A\\a' $__s\n\
+             end\n\
+             printf '\\033]133;A\\a'\n",
+        ),
+        _ => None,
+    };
+
+    let Some(script) = script else {
+        return Ok(());
+    };
+
+    writer
+        .write_all(script.as_bytes())
+        .and_then(|_| writer.flush())
+        .map_err(|error| format!("failed to initialize shell integration: {error}"))
+}
+
 #[tauri::command]
 fn start_shell(
     cols: u16,
@@ -51,7 +104,7 @@ fn start_shell(
         .map_err(|error| format!("failed to open pty: {error}"))?;
 
     let shell = default_shell();
-    let mut command = CommandBuilder::new(shell);
+    let mut command = CommandBuilder::new(shell.clone());
     command.env("TERM", "xterm-256color");
 
     let child = pair
@@ -64,10 +117,14 @@ fn start_shell(
         .master
         .try_clone_reader()
         .map_err(|error| format!("failed to clone pty reader: {error}"))?;
-    let writer = pair
+    let mut writer = pair
         .master
         .take_writer()
         .map_err(|error| format!("failed to acquire pty writer: {error}"))?;
+
+    if let Err(error) = initialize_shell_integration(&shell, &mut writer) {
+        eprintln!("{error}");
+    }
 
     let app_for_reader = app.clone();
     std::thread::spawn(move || {

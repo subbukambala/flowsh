@@ -15,6 +15,9 @@ export default function CommandBlock({ block }: CommandBlockProps) {
         <span className={`command-block-status command-block-status-${block.status}`}>
           {block.status}
         </span>
+        {block.exitCode !== undefined ? (
+          <span className="command-block-exit">exit {block.exitCode}</span>
+        ) : null}
         <span className="command-block-time">{startedAt}</span>
         <span className="command-block-duration">{durationSeconds}s</span>
       </header>
