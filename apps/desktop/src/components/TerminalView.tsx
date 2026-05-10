@@ -1,8 +1,10 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { FitAddon } from "@xterm/addon-fit";
 import { Terminal } from "xterm";
+import CommandBlock from "./CommandBlock";
+import { appendOutputToBlock, completeBlock, createRunningBlock, type CommandBlock as CommandBlockModel } from "../lib/blocks";
 import "xterm/css/xterm.css";
 import "./TerminalView.css";
 
@@ -12,9 +14,16 @@ type ShellOutputPayload = {
 
 const DEFAULT_COLS = 120;
 const DEFAULT_ROWS = 32;
+const PROMPT_SUFFIX_REGEX = /[#$%>] $/;
+const ANSI_ESCAPE_REGEX = /\u001b\[[0-9;?]*[ -/]*[@-~]/g;
+const ANSI_OSC_REGEX = /\u001b\][^\u0007]*(\u0007|\u001b\\)/g;
 
 export default function TerminalView() {
   const hostRef = useRef<HTMLDivElement | null>(null);
+  const [blocks, setBlocks] = useState<CommandBlockModel[]>([]);
+  const activeBlockIdRef = useRef<string | null>(null);
+  const currentInputRef = useRef("");
+  const interruptedRef = useRef(false);
 
   useEffect(() => {
     if (!hostRef.current) {
@@ -59,12 +68,58 @@ export default function TerminalView() {
 
     const start = async () => {
       const unlisten = await listen<ShellOutputPayload>("pty-output", (event) => {
-        terminal.write(event.payload.chunk);
+        const chunk = event.payload.chunk;
+        terminal.write(chunk);
+
+        const activeBlockId = activeBlockIdRef.current;
+        if (!activeBlockId) {
+          return;
+        }
+
+        setBlocks((prev) => appendOutputToBlock(prev, activeBlockId, chunk));
+
+        if (isPromptReturnChunk(chunk)) {
+          const status = interruptedRef.current ? "failed" : "success";
+          interruptedRef.current = false;
+          activeBlockIdRef.current = null;
+          setBlocks((prev) => completeBlock(prev, activeBlockId, status));
+        }
       });
       teardownOutputListener = unlisten;
 
       const dataDisposable = terminal.onData((data) => {
         void invoke("write_to_shell", { data });
+
+        for (const char of data) {
+          if (char === "\u0003") {
+            interruptedRef.current = true;
+            continue;
+          }
+
+          if (char === "\u007f") {
+            currentInputRef.current = currentInputRef.current.slice(0, -1);
+            continue;
+          }
+
+          if (char === "\r" || char === "\n") {
+            const command = currentInputRef.current.trim();
+            currentInputRef.current = "";
+
+            if (!command) {
+              continue;
+            }
+
+            const nextBlock = createRunningBlock(command);
+            activeBlockIdRef.current = nextBlock.id;
+            interruptedRef.current = false;
+            setBlocks((prev) => [nextBlock, ...prev]);
+            continue;
+          }
+
+          if (char >= " " && char !== "\u007f") {
+            currentInputRef.current += char;
+          }
+        }
       });
       teardownDataHandler = () => dataDisposable.dispose();
 
@@ -126,8 +181,30 @@ export default function TerminalView() {
 
   return (
     <section className="terminal-root">
-      <header className="terminal-header">flowsh · phase 0.1 terminal wrapper</header>
-      <div className="terminal-host" ref={hostRef} />
+      <header className="terminal-header">flowsh · phase 0.2 command blocks</header>
+      <div className="terminal-workspace">
+        <aside className="blocks-panel">
+          <div className="blocks-panel-title">Command Blocks</div>
+          {blocks.length === 0 ? (
+            <p className="blocks-empty-state">Run a command and press Enter to create a block.</p>
+          ) : (
+            <div className="blocks-list">
+              {blocks.map((block) => (
+                <CommandBlock key={block.id} block={block} />
+              ))}
+            </div>
+          )}
+        </aside>
+        <div className="terminal-host" ref={hostRef} />
+      </div>
     </section>
   );
+}
+
+function isPromptReturnChunk(chunk: string): boolean {
+  const clean = chunk.replace(ANSI_ESCAPE_REGEX, "").replace(ANSI_OSC_REGEX, "");
+  const normalized = clean.replace(/\r/g, "\n");
+  const lines = normalized.split("\n");
+  const lastLine = lines[lines.length - 1] ?? "";
+  return PROMPT_SUFFIX_REGEX.test(lastLine);
 }
