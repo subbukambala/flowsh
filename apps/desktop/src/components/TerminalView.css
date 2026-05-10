@@ -16,14 +16,127 @@
   border-bottom: 1px solid #1a2133;
   background: #0d111a;
 }
-
-.terminal-host {
+.terminal-workspace {
   flex: 1;
   min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(320px, 38%) 1fr;
+}
+
+.blocks-panel {
+  min-width: 0;
+  border-right: 1px solid #1a2133;
+  background: #0d111a;
+  display: flex;
+  flex-direction: column;
+}
+
+.blocks-panel-title {
+  padding: 10px 12px;
+  font-size: 12px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #96a4cf;
+  border-bottom: 1px solid #1a2133;
+}
+
+.blocks-empty-state {
+  margin: 0;
+  padding: 14px 12px;
+  color: #7f8cb4;
+  font-size: 13px;
+}
+
+.blocks-list {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.command-block {
+  border: 1px solid #27314b;
+  border-radius: 8px;
+  overflow: hidden;
+  background: #0b111d;
+}
+
+.command-block-header {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  padding: 8px 10px;
+  border-bottom: 1px solid #1a2133;
+  background: #10182a;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.command-block-status {
+  font-weight: 600;
+}
+
+.command-block-status-running {
+  color: #7aa2f7;
+}
+
+.command-block-status-success {
+  color: #8bd5a5;
+}
+
+.command-block-status-failed {
+  color: #f7768e;
+}
+
+.command-block-time,
+.command-block-duration {
+  color: #8b98be;
+}
+
+.command-block-command {
+  padding: 8px 10px;
+  color: #d7def8;
+  border-bottom: 1px solid #1a2133;
+  font-size: 13px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.command-block-output {
+  margin: 0;
+  padding: 10px;
+  color: #b9c4e8;
+  font-size: 12px;
+  line-height: 1.35;
+  max-height: 180px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.terminal-host {
+  min-width: 0;
   padding: 8px;
 }
 
 .terminal-host .xterm {
   width: 100%;
   height: 100%;
+}
+
+@media (max-width: 980px) {
+  .terminal-workspace {
+    grid-template-columns: 1fr;
+    grid-template-rows: minmax(220px, 42%) 1fr;
+  }
+
+  .blocks-panel {
+    border-right: 0;
+    border-bottom: 1px solid #1a2133;
+  }
 }
